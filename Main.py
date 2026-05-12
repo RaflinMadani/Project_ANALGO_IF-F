@@ -96,7 +96,7 @@ def analisa_algoritma(image_path):
     plt.grid(True)
     plt.show()
 
-# JALANKAN PROGRAM
+# JALANKAN PROGRAM HALO
 # Ganti 'foto_anda.jpg' dengan nama file gambar yang ada di folder yang sama
 try:
     analisa_algoritma('foto_anda.jpg') 
