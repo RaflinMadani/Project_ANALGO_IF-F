@@ -37,6 +37,7 @@ def _strassen(A, B):
     m1 = _strassen(a11 + a22, b11 + b22)
     m2 = _strassen(a21 + a22, b11)
     m3 = _strassen(a11,        b12 - b22)
+    
     m4 = _strassen(a22,        b21 - b11)
     m5 = _strassen(a11 + a12,  b22)
     m6 = _strassen(a21 - a11,  b11 + b12)
