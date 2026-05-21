@@ -517,12 +517,12 @@ def create_visualization(benchmark_results, img_orig, img_transforms, times_tran
                  bbox=dict(boxstyle='round', facecolor=COLORS['panel'],
                            edgecolor=COLORS['numpy'], alpha=0.8))
 
-    plt.savefig('/mnt/user-data/outputs/matrix_comparison_chart.png',
+    plt.savefig('matrix_comparison_chart.png',
                 dpi=150, bbox_inches='tight',
                 facecolor=COLORS['bg'], edgecolor='none')
     print("\n  [SAVED] Visualisasi → matrix_comparison_chart.png")
+    plt.show()  # <--- TAMBAHKAN INI AGAR GRAFIKNYA MUNCUL DI LAYAR
     plt.close()
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. ANALISIS KOMPLEKSITAS TEORITIS
