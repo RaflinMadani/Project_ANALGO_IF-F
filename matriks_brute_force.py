@@ -479,7 +479,7 @@ def main():
     print("║                           ║")
     print("║  PENGOLAHAN CITRA DIGITAL ║")  
     print("║                           ║")
-    print("╚════════════════════=══════╝")
+    print("╚═══════════════════════════╝")
 
     path = input("\nMasukkan path citra (atau tekan Enter untuk citra uji sintetis): ").strip().strip('"')
 
