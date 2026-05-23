@@ -1,13 +1,3 @@
-"""
-digital_image_processing.py
-============================
-Pengolahan Citra Digital — Implementasi Lengkap dengan NumPy
-Mencakup seluruh materi standar mata kuliah Pengolahan Citra Digital.
-
-Cara menjalankan:
-    python digital_image_processing.py
-"""
-
 import numpy as np
 import cv2
 import os
@@ -1059,10 +1049,11 @@ def bab12_warna_lanjutan(img_bgr):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    print("╔══════════════════════════════════════════════════════════╗")
-    print("║  PENGOLAHAN CITRA DIGITAL — Implementasi Lengkap NumPy  ║")
-    print("║  12 Bab · 60+ Teknik · Output otomatis ke folder        ║")
-    print("╚══════════════════════════════════════════════════════════╝")
+    print("╔════════════════════════════╗")
+    print("║                            ║")
+    print("║  PENGOLAHAN CITRA DIGITAL  ║")
+    print("║                            ║")
+    print("╚════════════════════════════╝")
 
     # Input citra dari pengguna
     path = input("\nMasukkan path citra (atau tekan Enter untuk citra uji sintetis): ").strip().strip('"')
