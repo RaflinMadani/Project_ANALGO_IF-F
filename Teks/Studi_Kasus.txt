@@ -1,0 +1,74 @@
+==================================================================
+            BAGIAN 2: ANALISIS STUDI KASUS PERKALIAN
+==================================================================
+
+--------------------------------------------------------------------
+STUDI KASUS 1: BAB 5 · TRANSFORMASI DOMAIN FREKUENSI (FFT)
+--------------------------------------------------------------------
+* Apa yang Dilakukan (Bahasa Sederhana):
+  Membelah gambar berdasarkan tingkat kehalusannya menggunakan saringan 
+  frekuensi. Memisahkan area halus (seperti warna kulit/langit) dengan 
+  area tajam (seperti garis rambut/teks).
+  
+* Di Mana Perkalian Matriks Terjadi?
+  Mengubah gambar spasial (matriks f) ke domain frekuensi (matriks F) 
+  menggunakan rumus Discrete Fourier Transform (DFT). Operasi ini 
+  murni perkalian matriks Aljabar Linear: F = W * f * W.
+
+* Hasil Gambar
+  Karena program mendemonstrasikan berbagai macam hasil "saringan":
+  1. Spektrum Magnitude & Fase: Grafik pola frekuensi asli gambar.
+  2. Low-Pass Filter (Ideal & Butterworth): Mengambil yang halus saja, 
+     membuat gambar hasil rekonstruksi jadi blur/halus.
+  3. High-Pass Filter: Mengambil yang tajam saja, membuat gambar jadi 
+     garis-garis tepi mirip hantu.
+  4. Band-Pass Filter: Hanya mengambil rentang frekuensi tertentu.
+
+--------------------------------------------------------------------
+STUDI KASUS 2: BAB 8 · TRANSFORMASI GEOMETRI
+--------------------------------------------------------------------
+* Apa yang Dilakukan?
+  Mengubah posisi fisik, ukuran, sudut pandang, atau memutar-mutar 
+  posisi gambar seperti wahana permainan di pasar malam.
+
+* Di Mana Perkalian Matriks Terjadi?
+  Komputer mengalikan matriks transformasi geometri ukuran 3x3 dengan 
+  matriks kolom koordinat tiap piksel [x, y, 1] untuk mencari tahu 
+  di mana posisi koordinat baru [x', y', 1] setelah dipindahkan.
+
+* Hasil Gambar
+  Karena setiap jenis perpindahan posisi dicoba dan disimpan satu per satu:
+  1. Translasi: Gambar digeser ke kanan bawah.
+  2. Rotasi: Gambar diputar dengan sudut 45 derajat.
+  3. Skala: Gambar diperbesar 2x lipat dan diperkecil 0.5x lipat.
+  4. Shear: Gambar ditarik miring secara horizontal.
+  5. Flip: Gambar dicerminkan (terbalik horizontal dan vertikal).
+  6. Perspektif (Warping): Gambar ditarik sudutnya agar lurus.
+  7. Jenis Interpolasi: Metode pengisian piksel kosong saat gambar 
+     diperbesar (Nearest, Bilinear, Bicubic, Lanczos).
+
+--------------------------------------------------------------------
+STUDI KASUS 3: BAB 10 · KOMPRESI CITRA (DCT & JPEG)
+--------------------------------------------------------------------
+* Apa yang Dilakukan?
+  Membungkus gambar menjadi ukuran file yang sekecil mungkin (kompresi) 
+  dengan cara membuang detail kecil yang tidak terlalu terlihat oleh mata.
+
+* Di Mana Perkalian Matriks Terjadi?
+  Gambar dipecah menjadi kotak kecil ukuran 8x8 piksel. Tiap kotak 
+  dikalikan dengan matriks basis DCT (Discrete Cosine Transform) lewat 
+  rumus D = T * A * T^T untuk mengubah warna menjadi angka frekuensi.
+
+* Hasil Gambarnya
+  Program menguji 3 tingkat kualitas bungkus kado kompresi yang berbeda. 
+  Nilai PSNR (Rapor Kemiripan Gambar) menunjukkan efeknya secara nyata:
+  1. JPEG Qx1 (PSNR = 33.66 dB): Angka PSNR tinggi artinya kualitas 
+     gambar rekonstruksi sangat bagus dan mirip asli karena pembagi 
+     kuantisasi kecil.
+  2. JPEG Qx16 (PSNR = 23.60 dB): Angka PSNR drop di bawah 25 dB artinya 
+     gambar rusak dan terlihat kotak-kotak (blocking artifact).
+  
+  *Kesimpulan Analisis Data:* Terjadi trade-off algoritmik. Semakin 
+  besar faktor pengali kuantisasi, semakin banyak angka di dalam 
+  matriks yang dipaksa berubah menjadi 0. Ukuran file menjadi super 
+  hemat, namun akurasi data gambar rusak drastis.

@@ -1,0 +1,112 @@
+====================================================================
+         PENGERTIAN UMUM & METODE PERKALIAN MATRIKS
+====================================================================
+
+1. METODE BRUTE FORCE (Naif / Tradisional)
+--------------------------------------------------------------------
+* Pengertian: 
+  Metode paling dasar yang menyelesaikan masalah secara langsung sesuai 
+  definisi matematika asli. Dalam perkalian matriks, setiap elemen baris 
+  pada matriks A dikalikan satu per satu dengan elemen kolom pada 
+  matriks B menggunakan tiga lapis perulangan bertingkat (nested loop).
+* Kompleksitas Waktu: O(N^3)
+  - Penjelasan: Jika ukuran matriks naik 2 kali lipat, waktu eksekusinya 
+    akan membengkak 8 kali lipat (2 pangkat 3) karena prosesor harus 
+    melakukan tiga kali perulangan sedalam ukuran matriks tersebut.
+* Kompleksitas Ruang: O(N^2)
+  - Penjelasan: Sangat hemat tempat di memori karena data langsung 
+    dihitung dan disimpan ke dalam satu matriks hasil tanpa perlu 
+    membuat salinan data tambahan selama proses perhitungan.
+
+2. METODE STRASSEN (Paradigma Divide and Conquer)
+--------------------------------------------------------------------
+* Pengertian: 
+  Metode yang memecah matriks besar berukuran N x N menjadi 4 bagian 
+  matriks kecil berukuran (N/2) x (N/2) secara terus-menerus (rekursif). 
+  Strassen menggunakan rumus matematika khusus untuk mengganti operasi 
+  perkalian yang berat dengan operasi penjumlahan yang lebih ringan.
+* Kompleksitas Waktu: O(N^2.807)
+  - Penjelasan: Secara teori matematika, metode ini lebih cepat daripada 
+    Brute Force untuk matriks berukuran raksasa karena berhasil memotong 
+    jumlah perkalian inti dari 8 kali menjadi hanya 7 kali.
+* Kompleksitas Ruang: O(N^2 log N)
+  - Penjelasan: Boros memori karena fungsi rekursif yang dipanggil 
+    berulang-ulang menciptakan tumpukan antrean memori (stack frame) 
+    dan membuat banyak objek pecahan matriks baru di setiap levelnya.
+
+3. METODE VECTORIZATION & BLAS (Pendekatan NumPy / Hardware)
+--------------------------------------------------------------------
+* Pengertian: 
+  Metode modern yang tidak menggunakan perulangan di level kode program 
+  basa-basi (seperti perulangan Python), melainkan langsung melempar 
+  seluruh blok matriks ke dalam instruksi sirkuit hardware komputer 
+  melalui pustaka tingkat rendah (BLAS/LAPACK) yang ditulis dengan C/Fortran.
+* Kompleksitas Waktu Teoritis: O(N^3) 
+* Kompleksitas Waktu Riil: Sangat Cepat (Mendekati Instan)
+  - Penjelasan: Walaupun secara matematis jumlah total operasinya tetap 
+    setara O(N^3), kecepatannya luar biasa karena prosesor melakukan 
+    perkalian banyak angka sekaligus dalam satu detak jam instruksi 
+    secara paralel (SIMD) langsung di memori kecepatan tinggi (Cache).
+* Kompleksitas Ruang: O(N^2)
+  - Penjelasan: Efisien karena data dialokasikan dalam satu blok memori 
+    yang rapi, berurutan, dan utuh, tanpa menciptakan tumpukan fungsi 
+    rekursif yang membebani RAM komputer.
+
+====================================================================
+      KENAPA KOMPLEKSITASNYA SAMA-SAMA O(N^3) TAPI KECEPATAN BEDA?
+====================================================================
+
+1. NOTASI BIG-O MENGABAIKAN KELIPATAN KONSTAN (FAKTOR K)
+--------------------------------------------------------------------
+* Teori Big-O:
+  Dalam matematika Big-O, angka pengali atau konstanta itu dihapus.
+  Contoh: Algoritma A butuh (1 * N^3) operasi, Algoritma B butuh 
+  (100 * N^3) operasi. Di atas kertas, keduanya tetap ditulis O(N^3).
+* Realita di Komputer:
+  Meskipun notasinya sama-sama O(N^3), Algoritma A di dunia nyata akan 
+  berjalan 100 kali lebih cepat daripada Algoritma B karena jumlah 
+  instruksi aslinya jauh lebih sedikit.
+
+2. ARSITEKTUR MEMORI (MANAJEMEN CACHE VS RAM)
+--------------------------------------------------------------------
+* Brute Force Python Murni:
+  Setiap kali melakukan perkalian di dalam perulangan "for", Python 
+  harus mengambil data dari RAM, dibawa ke prosesor, dihitung, lalu 
+  dikembalikan ke RAM. Mengambil data dari RAM itu lambat.
+* NumPy / BLAS:
+  Menggunakan teknik bernama "Block Matrix Multiplication". Matriks 
+  dipecah menyesuaikan ukuran Cache L1/L2 (memori super cepat di dalam 
+  prosesor). Data dimasukkan sekali ke Cache, dihitung sampai selesai 
+  di sana, baru dikembalikan ke RAM. Ini memotong waktu tunggu prosesor.
+
+3. PARALELISME HARDWARE (SIMD / VECTORIZATION)
+--------------------------------------------------------------------
+* Brute Force Python Murni (Sekuensial):
+  Prosesor dipaksa bekerja secara eceran. Untuk menghitung 4 perkalian, 
+  prosesor melakukan 4 kali detak jam instruksi secara bergantian 
+  (Satu demi satu).
+* NumPy / BLAS (Paralel / SIMD):
+  Memanfaatkan fitur modern prosesor bernama SIMD (Single Instruction, 
+  Multiple Data). Prosesor bisa melakukan operasi "grosiran". Dalam 1 
+  detak jam instruksi yang sama, prosesor langsung mengalikan 4 sampai 
+  8 pasang angka sekaligus secara bersamaan (paralel).
+
+4. PERBEDAAN BAHASA (INTERPRETED VS COMPILED)
+--------------------------------------------------------------------
+* Perulangan "for" di Python harus diperiksa tipedatanya satu per satu 
+  di setiap putaran oleh sistem (Interpreted Overhead), yang membuat 
+  prosesnya sangat lambat.
+* NumPy ditulis menggunakan bahasa C dan Fortran yang sudah dikompilasi 
+  menjadi kode mesin (Binary). Prosesor langsung mengeksekusi angka 
+  tanpa perlu banyak berpikir lagi.
+
+====================================================================
+                             KESIMPULAN
+====================================================================
+Big-O hanya menghitung "Berapa banyak langkah tugasnya". 
+Sedangkan NumPy/BLAS berfokus pada "Bagaimana cara kerja robot yang 
+menyelesaikan tugas tersebut". 
+
+Itulah mengapa perkalian matriks lewat Brute Force Python dan NumPy 
+sama-sama memilki kompleksitas teoritis O(N^3), tetapi NumPy bisa 
+selesai ribuan kali lebih cepat (mendekati instan).
