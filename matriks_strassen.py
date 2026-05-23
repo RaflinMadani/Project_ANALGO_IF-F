@@ -554,12 +554,11 @@ def bab10_kompresi(gray):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    print("╔══════════════════════════════════════════════════════╗")
-    print("║                                                      ║")
-    print("║  PENGOLAHAN CITRA DIGITAL                            ║")
-    print("║  Perkalian Matriks : STRASSEN  O(n^2.807)           ║")
-    print("║                                                      ║")
-    print("╚══════════════════════════════════════════════════════╝")
+    print("╔════════════════════════════╗")
+    print("║                            ║")
+    print("║  PENGOLAHAN CITRA DIGITAL  ║")
+    print("║                            ║")
+    print("╚════════════════════════════╝")
 
     path = input("\nMasukkan path citra (atau tekan Enter untuk citra uji sintetis): ").strip().strip('"')
 
