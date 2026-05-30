@@ -4,7 +4,8 @@ import cv2
 import os
 import sys
 import time
-from scipy.fft import fftshift, ifftshift, idct
+from scipy import ndimage
+from scipy.fft import fft2, ifft2, fftshift, ifftshift, dct, idct
 from PIL import Image
 import warnings
 warnings.filterwarnings("ignore")
@@ -35,135 +36,6 @@ def _print_done(label, path, elapsed_ms=None):
     t = f"  [{elapsed_ms:.1f} ms]" if elapsed_ms else ""
     print(f"  ✓ {label:<35}{t}")
     print(f"    → {path}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  FUNGSI PERKALIAN MATRIKS — NUMPY (BLAS)
-#  Menggunakan operator @ yang memanggil BLAS dgemm di belakang layar
-#  Kompleksitas praktis: O(n^2.37)  — cache-blocked + SIMD/AVX + multi-thread
-# ══════════════════════════════════════════════════════════════════════════════
-
-def matmul_brute_force(A, B):
-    """
-    Perkalian dua matriks menggunakan NumPy (BLAS backend).
-
-    Implementasi:
-        Satu baris kode — operator @ memanggil np.matmul yang
-        menggunakan BLAS routine dgemm di level C/Fortran dengan:
-            ✓ Cache-oblivious blocked matrix multiplication
-            ✓ Instruksi SIMD (AVX/AVX-512) untuk operasi vektor paralel
-            ✓ Multi-threading otomatis (OpenBLAS / MKL)
-
-        Tidak ada loop Python — semua komputasi di level hardware.
-
-    Kompleksitas Praktis : O(n^2.37)  [Coppersmith–Winograd bound]
-    Kompleksitas Ruang   : O(n × m) untuk matriks hasil C
-
-    Digunakan pada:
-        - BAB 5  : perkalian matriks DCT basis  →  D @ blok @ D.T
-        - BAB 8  : perkalian matriks affine     →  M_affine @ koordinat
-        - BAB 10 : perkalian matriks DCT basis  →  D @ blok @ D.T
-
-    Parameters
-    ----------
-    A : ndarray (n × p)
-    B : ndarray (p × m)
-
-    Returns
-    -------
-    C : ndarray (n × m)
-    """
-    A = np.asarray(A, dtype=np.float64)
-    B = np.asarray(B, dtype=np.float64)
-
-    # Operator @ → np.matmul → BLAS dgemm (C/Fortran, no Python loop)
-    return A @ B
-
-
-# ── Helper: DCT matrix basis N×N ─────────────────────────────────────────────
-
-def _dct_matrix(N):
-    """
-    Bangun matriks basis DCT-II ortogonal berukuran N×N.
-
-    Elemen:
-        D[0, n] = sqrt(1/N)
-        D[k, n] = sqrt(2/N) × cos(π·k·(2n+1) / 2N)  untuk k > 0
-
-    Dengan matriks ini, DCT 2D blok dihitung sebagai:
-        koefisien = D @ blok @ D.T  (dua kali perkalian matriks)
-    """
-    D = np.zeros((N, N), dtype=np.float64)
-    for k in range(N):
-        for n in range(N):
-            if k == 0:
-                D[k, n] = np.sqrt(1.0 / N)
-            else:
-                D[k, n] = np.sqrt(2.0 / N) * np.cos(np.pi * k * (2*n + 1) / (2*N))
-    return D
-
-
-# ── Helper: warpAffine manual dengan NumPy matmul ───────────────────────────
-
-def _warp_affine_brute(img, M2x3):
-    """
-    Terapkan transformasi affine per piksel menggunakan inverse mapping.
-    Perkalian matriks M @ [x, y, 1]^T dilakukan dengan matmul_brute_force (NumPy @).
-
-    Kompleksitas: O(H × W × 6)  — 6 operasi multiply-add per piksel
-    """
-    H, W = img.shape[:2]
-    out  = np.zeros_like(img)
-
-    # Invers matriks affine 2×2 (komponen rotasi/skala)
-    a, b, tx = M2x3[0]
-    c, d, ty = M2x3[1]
-    det = a * d - b * c
-    if abs(det) < 1e-10:
-        return out
-    inv_det = 1.0 / det
-    Ainv = np.array([[ d * inv_det, -b * inv_det],
-                      [-c * inv_det,  a * inv_det]], dtype=np.float64)
-    t_vec = np.array([[tx], [ty]], dtype=np.float64)
-
-    for y_dst in range(H):
-        for x_dst in range(W):
-            # Koordinat sumber: [x_src, y_src]^T = A_inv @ ([x_dst,y_dst]^T - t)
-            dst_vec = np.array([[x_dst], [y_dst]], dtype=np.float64)
-            src = matmul_brute_force(Ainv, dst_vec - t_vec)
-            ix  = int(round(float(src[0, 0])))
-            iy  = int(round(float(src[1, 0])))
-            if 0 <= ix < W and 0 <= iy < H:
-                out[y_dst, x_dst] = img[iy, ix]
-
-    return out
-
-
-def _warp_perspective_brute(img, M3x3):
-    """
-    Terapkan transformasi perspektif per piksel dengan inverse mapping.
-    Perkalian matriks M_inv @ [x, y, 1]^T memakai matmul_brute_force (NumPy @).
-
-    Kompleksitas: O(H × W × 9)  — 9 operasi multiply-add per piksel
-    """
-    H, W   = img.shape[:2]
-    out    = np.zeros_like(img)
-    M_inv  = np.linalg.inv(M3x3.astype(np.float64))
-
-    for y_dst in range(H):
-        for x_dst in range(W):
-            pt_dst = np.array([[x_dst], [y_dst], [1.0]], dtype=np.float64)
-            pt_src = matmul_brute_force(M_inv, pt_dst)
-            w      = pt_src[2, 0]
-            if abs(w) < 1e-10:
-                continue
-            ix = int(round(pt_src[0, 0] / w))
-            iy = int(round(pt_src[1, 0] / w))
-            if 0 <= ix < W and 0 <= iy < H:
-                out[y_dst, x_dst] = img[iy, ix]
-
-    return out
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  BAB 5 — TRANSFORMASI DOMAIN FREKUENSI
@@ -233,15 +105,11 @@ def bab5_domain_frekuensi(gray):
     _save("5b_bpf.png", np.clip(img_bp, 0, 255).astype(np.uint8))
     _print_done("Band-pass filter (r=15–60)", OUTPUT_DIR)
 
-    # --- 5c. DCT 2D — menggunakan matmul_brute_force (NumPy @) ---
-    # DCT 2D blok = D @ blok @ D.T
-    # Kedua perkalian matriks dilakukan dengan NumPy BLAS O(n^2.37)
+    # --- 5c. DCT 2D (Discrete Cosine Transform) — dasar JPEG ---
+    # Proses blok 8×8 seperti standar JPEG
     H8 = (H // 8) * 8
     W8 = (W // 8) * 8
     gray8 = gray[:H8, :W8].astype(np.float64) - 128   # level shift
-
-    D8       = _dct_matrix(8)      # matriks basis DCT 8×8
-    D8T      = D8.T                # transpose untuk IDCT
 
     dct_img  = np.zeros_like(gray8)
     idct_img = np.zeros_like(gray8)
@@ -249,21 +117,12 @@ def bab5_domain_frekuensi(gray):
     for y in range(0, H8, 8):
         for x in range(0, W8, 8):
             blok = gray8[y:y+8, x:x+8]
-
-            # DCT 2D: D @ blok @ D.T  — dua kali matmul_brute_force (NumPy @)
-            temp = matmul_brute_force(D8,  blok)   # BLAS dgemm
-            Dblk = matmul_brute_force(temp, D8T)   # BLAS dgemm
-
-            dct_img[y:y+8, x:x+8] = Dblk
-
+            D    = dct(dct(blok, axis=0, norm='ortho'), axis=1, norm='ortho')
+            dct_img[y:y+8, x:x+8] = D
             # Kuantisasi sederhana (faktor Q=10) → simulasi kompresi
-            Q  = np.ones((8, 8)) * 10
-            Dq = np.round(Dblk / Q) * Q
-
-            # IDCT 2D: D.T @ Dq @ D  — dua kali matmul_brute_force (NumPy @)
-            temp2 = matmul_brute_force(D8T, Dq)   # BLAS dgemm
-            R     = matmul_brute_force(temp2, D8)  # BLAS dgemm
-
+            Q    = np.ones((8,8)) * 10
+            Dq   = np.round(D / Q) * Q
+            R    = idct(idct(Dq, axis=1, norm='ortho'), axis=0, norm='ortho')
             idct_img[y:y+8, x:x+8] = R
 
     dct_vis = np.log(1 + np.abs(dct_img))
@@ -284,7 +143,6 @@ def bab8_transformasi_geometri(img_bgr):
     """
     Topik: Transformasi koordinat spasial citra.
     Termasuk translasi, rotasi, skala, shear, dan transformasi perspektif.
-    Perkalian matriks affine/perspektif menggunakan matmul_brute_force (NumPy @).
     """
     _print_section("BAB 8 · TRANSFORMASI GEOMETRI")
 
@@ -293,26 +151,19 @@ def bab8_transformasi_geometri(img_bgr):
 
     # --- 8a. Translasi ---
     tx, ty = 50, 30
-    M_trans = np.float64([[1, 0, tx],
+    M_trans = np.float32([[1, 0, tx],
                            [0, 1, ty]])
-    # Translasi menggunakan inverse mapping + matmul_brute_force (NumPy @)
-    translated = _warp_affine_brute(img_bgr, M_trans)
+    translated = cv2.warpAffine(img_bgr, M_trans, (W, H))
     _save("8a_translasi.png", translated)
     _print_done(f"Translasi (tx={tx}, ty={ty})", OUTPUT_DIR)
 
     # --- 8b. Rotasi ---
-    rad   = np.deg2rad(45)
-    cos_a, sin_a = np.cos(rad), np.sin(rad)
-    M_rot = np.float64([
-        [cos_a, -sin_a, (1 - cos_a)*cx + sin_a*cy],
-        [sin_a,  cos_a, (1 - cos_a)*cy - sin_a*cx],
-    ])
-    rotated = _warp_affine_brute(img_bgr, M_rot)
+    M_rot = cv2.getRotationMatrix2D((cx, cy), 45, 1.0)
+    rotated = cv2.warpAffine(img_bgr, M_rot, (W, H))
     _save("8b_rotasi_45.png", rotated)
     _print_done("Rotasi 45° (center)", OUTPUT_DIR)
 
     # --- 8c. Skala (scaling) ---
-    # Skala tidak melibatkan perkalian matriks non-trivial — tetap cv2.resize
     scaled_up   = cv2.resize(img_bgr, (W*2, H*2), interpolation=cv2.INTER_LINEAR)
     scaled_down = cv2.resize(img_bgr, (W//2, H//2), interpolation=cv2.INTER_AREA)
     _save("8c_skala_2x.png", scaled_up)
@@ -321,16 +172,16 @@ def bab8_transformasi_geometri(img_bgr):
 
     # --- 8d. Shear transform ---
     shear_x = 0.3
-    M_shear = np.float64([[1, shear_x, 0],
+    M_shear = np.float32([[1, shear_x, 0],
                            [0, 1,      0]])
-    sheared = _warp_affine_brute(img_bgr, M_shear)
+    sheared = cv2.warpAffine(img_bgr, M_shear, (W, H))
     _save("8d_shear.png", sheared)
     _print_done("Shear transform (sx=0.3)", OUTPUT_DIR)
 
     # --- 8e. Flip (pencerminan) ---
-    flip_h = cv2.flip(img_bgr, 1)
-    flip_v = cv2.flip(img_bgr, 0)
-    flip_b = cv2.flip(img_bgr, -1)
+    flip_h = cv2.flip(img_bgr, 1)   # horizontal
+    flip_v = cv2.flip(img_bgr, 0)   # vertikal
+    flip_b = cv2.flip(img_bgr, -1)  # keduanya
     _save("8e_flip_horizontal.png", flip_h)
     _save("8e_flip_vertikal.png", flip_v)
     _save("8e_flip_keduanya.png", flip_b)
@@ -341,8 +192,7 @@ def bab8_transformasi_geometri(img_bgr):
     offset  = W // 5
     pts_dst = np.float32([[offset,0],[W-1-offset,0],[W-1,H-1],[0,H-1]])
     M_persp = cv2.getPerspectiveTransform(pts_src, pts_dst)
-    # Perspektif: perkalian matriks 3×3 × [x,y,1]^T via matmul_brute_force (NumPy @)
-    warped  = _warp_perspective_brute(img_bgr, M_persp)
+    warped  = cv2.warpPerspective(img_bgr, M_persp, (W, H))
     _save("8f_perspektif.png", warped)
     _print_done("Perspektif transform", OUTPUT_DIR)
 
@@ -366,7 +216,6 @@ def bab10_kompresi(gray):
     """
     Topik: Reduksi ukuran data citra dengan / tanpa kehilangan informasi.
     Lossless: RLE, Huffman. Lossy: JPEG-like (DCT + kuantisasi).
-    Perkalian matriks DCT menggunakan matmul_brute_force (NumPy @).
     """
     _print_section("BAB 10 · KOMPRESI CITRA")
 
@@ -390,6 +239,7 @@ def bab10_kompresi(gray):
         flat = np.repeat(values, counts).astype(np.uint8)
         return flat.reshape(shape)
 
+    # Terapkan RLE pada citra biner
     _, biner_rle = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
     vals, cnts  = rle_encode(biner_rle)
     rle_size    = len(vals) + len(cnts)
@@ -402,7 +252,8 @@ def bab10_kompresi(gray):
     print(f"  RLE encoded   : {rle_size:,} pasang (ratio: {rle_ratio:.3f})")
     _print_done("RLE encode + decode (lossless)", OUTPUT_DIR)
 
-    # --- 10b. JPEG-like lossy compression — DCT via matmul_brute_force (NumPy @) ---
+    # --- 10b. JPEG-like lossy compression (DCT + quantization) ---
+    # Matriks kuantisasi luminance standar JPEG
     Q_luma = np.array([
         [16,11,10,16,24,40,51,61],
         [12,12,14,19,26,58,60,55],
@@ -418,33 +269,23 @@ def bab10_kompresi(gray):
     H8, W8   = (H_g // 8) * 8, (W_g // 8) * 8
     gray8    = gray[:H8, :W8].astype(np.float64) - 128
 
-    D8  = _dct_matrix(8)
-    D8T = D8.T
-
     results_quality = {}
-    for q_scale in [1.0, 4.0, 16.0]:
-        recon    = np.zeros((H8, W8), dtype=np.float64)
+    for q_scale in [1.0, 4.0, 16.0]:     # 1=HQ, 4=medium, 16=LQ
+        recon = np.zeros((H8, W8), dtype=np.float64)
         Q_scaled = Q_luma * q_scale
 
         for y in range(0, H8, 8):
             for x in range(0, W8, 8):
                 blok = gray8[y:y+8, x:x+8]
-
-                # DCT 2D: D @ blok @ D.T  — matmul_brute_force (NumPy @)
-                temp = matmul_brute_force(D8,  blok)
-                D_   = matmul_brute_force(temp, D8T)
-
-                Dq   = np.round(D_ / Q_scaled) * Q_scaled
-
-                # IDCT 2D: D.T @ Dq @ D  — matmul_brute_force (NumPy @)
-                temp2 = matmul_brute_force(D8T, Dq)
-                R     = matmul_brute_force(temp2, D8)
-
+                D    = dct(dct(blok, axis=0, norm='ortho'), axis=1, norm='ortho')
+                Dq   = np.round(D / Q_scaled) * Q_scaled
+                R    = idct(idct(Dq, axis=1, norm='ortho'), axis=0, norm='ortho')
                 recon[y:y+8, x:x+8] = R
 
         recon_img = np.clip(recon + 128, 0, 255).astype(np.uint8)
         _save(f"10b_jpeg_q{int(q_scale)}.png", recon_img)
 
+        # Hitung PSNR
         mse  = np.mean((gray[:H8,:W8].astype(float) - recon_img.astype(float))**2)
         psnr = 10 * np.log10(255**2 / mse) if mse > 0 else float('inf')
         results_quality[q_scale] = psnr
@@ -453,11 +294,12 @@ def bab10_kompresi(gray):
     _print_done("JPEG-like compression (3 kualitas)", OUTPUT_DIR)
 
     # --- 10c. Predictive coding (DPCM) — lossless ---
+    # Encode perbedaan antar piksel (delta coding)
     pred  = np.zeros_like(gray, dtype=np.int16)
     pred[:, 0] = gray[:, 0]
     pred[:, 1:] = gray[:, 1:].astype(np.int16) - gray[:, :-1].astype(np.int16)
 
-    recon_pred    = np.cumsum(pred.astype(np.int16), axis=1)
+    recon_pred = np.cumsum(pred.astype(np.int16), axis=1)
     recon_pred_u8 = np.clip(recon_pred, 0, 255).astype(np.uint8)
     _save("10c_dpcm_delta.png", np.clip(pred + 128, 0, 255).astype(np.uint8))
     _save("10c_dpcm_rekonstruksi.png", recon_pred_u8)
@@ -470,58 +312,56 @@ def bab10_kompresi(gray):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    print("╔═════════════════════════════════════════════╗")
-    print("║                                             ║")
-    print("║          PENGOLAHAN CITRA DIGITAL           ║")
-    print("║          NUMPY (BLAS)   O(n^2.37)           ║")
-    print("║                                             ║")
-    print("╚═════════════════════════════════════════════╝")
+    print("╔════════════════════════════╗")
+    print("║                            ║")
+    print("║  PENGOLAHAN CITRA DIGITAL  ║")
+    print("║                            ║")
+    print("╚════════════════════════════╝")
 
-    # ── Input citra ──────────────────────────────────────────────────────────
-    path = input("\nPath citra input: ").strip().strip('"')
-    if not os.path.exists(path):
-        print(f"[ERROR] File tidak ditemukan: {path}")
-        sys.exit(1)
+    # Input citra dari pengguna
+    path = input("\nMasukkan path citra (atau tekan Enter untuk citra uji sintetis): ").strip().strip('"')
 
-    img_bgr = cv2.imread(path)
-    if img_bgr is None:
-        print(f"[ERROR] Tidak dapat membaca citra: {path}")
-        sys.exit(1)
+    if path and os.path.exists(path):
+        img_bgr = cv2.imread(path)
+        if img_bgr is None:
+            print("[ERROR] Tidak dapat membaca citra.")
+            sys.exit(1)
+        print(f"[OK] Citra dimuat: {img_bgr.shape[1]}×{img_bgr.shape[0]} px")
+    else:
+        # Buat citra sintetis jika tidak ada input
+        print("[INFO] Membuat citra sintetis 256×256 untuk demonstrasi ...")
+        img_bgr = np.zeros((256, 256, 3), dtype=np.uint8)
+        for y in range(256):
+            for x in range(256):
+                img_bgr[y, x, 2] = x                           # R
+                img_bgr[y, x, 1] = y                           # G
+                img_bgr[y, x, 0] = (x + y) // 2               # B
+        # Tambah lingkaran dan persegi untuk kepentingan morfologi & segmentasi
+        cv2.circle(img_bgr, (128, 128), 60, (255, 200, 100), -1)
+        cv2.circle(img_bgr, (64,   64), 30, (100, 255, 150), -1)
+        cv2.circle(img_bgr, (192,  64), 25, (150, 100, 255), -1)
+        cv2.rectangle(img_bgr, (30, 150), (100, 220), (200, 100, 200), -1)
+        cv2.rectangle(img_bgr, (160,150), (230, 210), (100, 200, 200), -1)
+        cv2.imwrite(os.path.join(OUTPUT_DIR, "_input_sintetis.png"), img_bgr)
+        print(f"[OK] Citra sintetis dibuat dan disimpan.")
 
-    print(f"[OK] Citra dimuat: {img_bgr.shape[1]}×{img_bgr.shape[0]} px")
     _save("_input_asli.png", img_bgr)
+
+    # Jalankan semua bab
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-
-    # ── Menu bab ─────────────────────────────────────────────────────────────
-    print("\nPilih bab yang ingin dijalankan:")
-    print("  [1] BAB 5  — Transformasi Domain Frekuensi (DFT + DCT)")
-    print("  [2] BAB 8  — Transformasi Geometri (Affine + Perspektif)")
-    print("  [3] BAB 10 — Kompresi Citra (RLE + JPEG-like DCT)")
-    print("  [4] Semua bab")
-
-    pilihan = input("\nPilih [1/2/3/4]: ").strip()
-
     t_total = time.perf_counter()
 
-    if pilihan == "1":
-        bab5_domain_frekuensi(gray)
-    elif pilihan == "2":
-        bab8_transformasi_geometri(img_bgr)
-    elif pilihan == "3":
-        bab10_kompresi(gray)
-    elif pilihan == "4":
-        bab5_domain_frekuensi(gray)
-        bab8_transformasi_geometri(img_bgr)
-        bab10_kompresi(gray)
-    else:
-        print("[ERROR] Pilihan tidak valid. Masukkan 1, 2, 3, atau 4.")
-        sys.exit(1)
+    img_lp, img_hp                     = bab5_domain_frekuensi(gray)
+    rotated, warped                    = bab8_transformasi_geometri(img_bgr)
+    jpeg_recon                         = bab10_kompresi(gray)
 
     elapsed_total = time.perf_counter() - t_total
-    n_files = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".png")])
+
+    # Hitung output
+    n_files = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith('.png')])
 
     print(f"\n{'═'*60}")
-    print(f"  SELESAI  [Metode: NUMPY (BLAS)]")
+    print(f"  SELESAI")
     print(f"  Total waktu   : {elapsed_total:.2f} detik")
     print(f"  File output   : {n_files} citra PNG")
     print(f"  Folder output : ./{OUTPUT_DIR}/")

@@ -38,26 +38,28 @@ def _print_done(label, path, elapsed_ms=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  FUNGSI PERKALIAN MATRIKS — NUMPY (BLAS)
-#  Menggunakan operator @ yang memanggil BLAS dgemm di belakang layar
-#  Kompleksitas praktis: O(n^2.37)  — cache-blocked + SIMD/AVX + multi-thread
+#  FUNGSI PERKALIAN MATRIKS — BRUTE FORCE OPTIMIZED
+#  Menggantikan operator @ / np.matmul / np.dot dari versi numpy
+#  Kompleksitas: O(n³) — sama secara teori, namun konstanta lebih kecil
+#  Optimasi: loop reorder (i→k→j) + pre-fetch baris A untuk cache locality
 # ══════════════════════════════════════════════════════════════════════════════
 
 def matmul_brute_force(A, B):
     """
-    Perkalian dua matriks menggunakan NumPy (BLAS backend).
+    Perkalian dua matriks dengan Brute Force Optimized.
 
-    Implementasi:
-        Satu baris kode — operator @ memanggil np.matmul yang
-        menggunakan BLAS routine dgemm di level C/Fortran dengan:
-            ✓ Cache-oblivious blocked matrix multiplication
-            ✓ Instruksi SIMD (AVX/AVX-512) untuk operasi vektor paralel
-            ✓ Multi-threading otomatis (OpenBLAS / MKL)
+    Optimasi dibanding Brute Force biasa:
+        1. Loop reorder  : urutan loop diubah dari (i,j,k) → (i,k,j)
+                           sehingga akses B[k][j] bersifat row-major
+                           dan lebih cache-friendly di CPU modern.
+        2. Pre-fetch A   : nilai A[i][k] disimpan ke variabel lokal
+                           agar tidak diakses ulang dari memori di tiap
+                           iterasi j — mengurangi cache miss.
 
-        Tidak ada loop Python — semua komputasi di level hardware.
-
-    Kompleksitas Praktis : O(n^2.37)  [Coppersmith–Winograd bound]
-    Kompleksitas Ruang   : O(n × m) untuk matriks hasil C
+    Kompleksitas Waktu : O(n × m × p)  — sama secara asimptotik dengan
+                         Brute Force biasa, namun konstanta tersembunyi
+                         jauh lebih kecil karena pola akses memori optimal.
+    Kompleksitas Ruang : O(n × m) untuk matriks hasil C
 
     Digunakan pada:
         - BAB 5  : perkalian matriks DCT basis  →  D @ blok @ D.T
@@ -75,9 +77,20 @@ def matmul_brute_force(A, B):
     """
     A = np.asarray(A, dtype=np.float64)
     B = np.asarray(B, dtype=np.float64)
+    n, p = A.shape
+    m    = B.shape[1]
 
-    # Operator @ → np.matmul → BLAS dgemm (C/Fortran, no Python loop)
-    return A @ B
+    C = np.zeros((n, m), dtype=np.float64)
+
+    # Loop reorder (i,k,j): A[i][k] diakses sekali per iterasi k,
+    # B[k][j] diakses secara sequential (row-major) → cache-friendly
+    for i in range(n):
+        for k in range(p):
+            a_ik = A[i][k]          # pre-fetch: simpan ke register lokal
+            for j in range(m):
+                C[i][j] += a_ik * B[k][j]
+
+    return C
 
 
 # ── Helper: DCT matrix basis N×N ─────────────────────────────────────────────
@@ -103,12 +116,12 @@ def _dct_matrix(N):
     return D
 
 
-# ── Helper: warpAffine manual dengan NumPy matmul ───────────────────────────
+# ── Helper: warpAffine manual dengan Brute Force Optimized ──────────────────
 
 def _warp_affine_brute(img, M2x3):
     """
     Terapkan transformasi affine per piksel menggunakan inverse mapping.
-    Perkalian matriks M @ [x, y, 1]^T dilakukan dengan matmul_brute_force (NumPy @).
+    Perkalian matriks M @ [x, y, 1]^T dilakukan dengan matmul_brute_force (optimized).
 
     Kompleksitas: O(H × W × 6)  — 6 operasi multiply-add per piksel
     """
@@ -142,7 +155,7 @@ def _warp_affine_brute(img, M2x3):
 def _warp_perspective_brute(img, M3x3):
     """
     Terapkan transformasi perspektif per piksel dengan inverse mapping.
-    Perkalian matriks M_inv @ [x, y, 1]^T memakai matmul_brute_force (NumPy @).
+    Perkalian matriks M_inv @ [x, y, 1]^T memakai matmul_brute_force (optimized).
 
     Kompleksitas: O(H × W × 9)  — 9 operasi multiply-add per piksel
     """
@@ -233,9 +246,9 @@ def bab5_domain_frekuensi(gray):
     _save("5b_bpf.png", np.clip(img_bp, 0, 255).astype(np.uint8))
     _print_done("Band-pass filter (r=15–60)", OUTPUT_DIR)
 
-    # --- 5c. DCT 2D — menggunakan matmul_brute_force (NumPy @) ---
+    # --- 5c. DCT 2D — menggunakan matmul_brute_force (optimized) ---
     # DCT 2D blok = D @ blok @ D.T
-    # Kedua perkalian matriks dilakukan dengan NumPy BLAS O(n^2.37)
+    # Kedua perkalian matriks dilakukan dengan Brute Force Optimized O(n³)*
     H8 = (H // 8) * 8
     W8 = (W // 8) * 8
     gray8 = gray[:H8, :W8].astype(np.float64) - 128   # level shift
@@ -250,9 +263,9 @@ def bab5_domain_frekuensi(gray):
         for x in range(0, W8, 8):
             blok = gray8[y:y+8, x:x+8]
 
-            # DCT 2D: D @ blok @ D.T  — dua kali matmul_brute_force (NumPy @)
-            temp = matmul_brute_force(D8,  blok)   # BLAS dgemm
-            Dblk = matmul_brute_force(temp, D8T)   # BLAS dgemm
+            # DCT 2D: D @ blok @ D.T  — dua kali matmul_brute_force (optimized)
+            temp = matmul_brute_force(D8,  blok)   # O(8³)* cache-friendly
+            Dblk = matmul_brute_force(temp, D8T)   # O(8³)* cache-friendly
 
             dct_img[y:y+8, x:x+8] = Dblk
 
@@ -260,9 +273,9 @@ def bab5_domain_frekuensi(gray):
             Q  = np.ones((8, 8)) * 10
             Dq = np.round(Dblk / Q) * Q
 
-            # IDCT 2D: D.T @ Dq @ D  — dua kali matmul_brute_force (NumPy @)
-            temp2 = matmul_brute_force(D8T, Dq)   # BLAS dgemm
-            R     = matmul_brute_force(temp2, D8)  # BLAS dgemm
+            # IDCT 2D: D.T @ Dq @ D  — dua kali matmul_brute_force (optimized)
+            temp2 = matmul_brute_force(D8T, Dq)   # O(8³)* cache-friendly
+            R     = matmul_brute_force(temp2, D8)  # O(8³)* cache-friendly
 
             idct_img[y:y+8, x:x+8] = R
 
@@ -284,7 +297,7 @@ def bab8_transformasi_geometri(img_bgr):
     """
     Topik: Transformasi koordinat spasial citra.
     Termasuk translasi, rotasi, skala, shear, dan transformasi perspektif.
-    Perkalian matriks affine/perspektif menggunakan matmul_brute_force (NumPy @).
+    Perkalian matriks affine/perspektif menggunakan matmul_brute_force (optimized).
     """
     _print_section("BAB 8 · TRANSFORMASI GEOMETRI")
 
@@ -295,7 +308,7 @@ def bab8_transformasi_geometri(img_bgr):
     tx, ty = 50, 30
     M_trans = np.float64([[1, 0, tx],
                            [0, 1, ty]])
-    # Translasi menggunakan inverse mapping + matmul_brute_force (NumPy @)
+    # Translasi menggunakan inverse mapping + matmul_brute_force (optimized)
     translated = _warp_affine_brute(img_bgr, M_trans)
     _save("8a_translasi.png", translated)
     _print_done(f"Translasi (tx={tx}, ty={ty})", OUTPUT_DIR)
@@ -341,7 +354,7 @@ def bab8_transformasi_geometri(img_bgr):
     offset  = W // 5
     pts_dst = np.float32([[offset,0],[W-1-offset,0],[W-1,H-1],[0,H-1]])
     M_persp = cv2.getPerspectiveTransform(pts_src, pts_dst)
-    # Perspektif: perkalian matriks 3×3 × [x,y,1]^T via matmul_brute_force (NumPy @)
+    # Perspektif: perkalian matriks 3×3 × [x,y,1]^T via matmul_brute_force (optimized)
     warped  = _warp_perspective_brute(img_bgr, M_persp)
     _save("8f_perspektif.png", warped)
     _print_done("Perspektif transform", OUTPUT_DIR)
@@ -366,7 +379,7 @@ def bab10_kompresi(gray):
     """
     Topik: Reduksi ukuran data citra dengan / tanpa kehilangan informasi.
     Lossless: RLE, Huffman. Lossy: JPEG-like (DCT + kuantisasi).
-    Perkalian matriks DCT menggunakan matmul_brute_force (NumPy @).
+    Perkalian matriks DCT menggunakan matmul_brute_force (optimized).
     """
     _print_section("BAB 10 · KOMPRESI CITRA")
 
@@ -402,7 +415,7 @@ def bab10_kompresi(gray):
     print(f"  RLE encoded   : {rle_size:,} pasang (ratio: {rle_ratio:.3f})")
     _print_done("RLE encode + decode (lossless)", OUTPUT_DIR)
 
-    # --- 10b. JPEG-like lossy compression — DCT via matmul_brute_force (NumPy @) ---
+    # --- 10b. JPEG-like lossy compression — DCT via matmul_brute_force (optimized) ---
     Q_luma = np.array([
         [16,11,10,16,24,40,51,61],
         [12,12,14,19,26,58,60,55],
@@ -430,13 +443,13 @@ def bab10_kompresi(gray):
             for x in range(0, W8, 8):
                 blok = gray8[y:y+8, x:x+8]
 
-                # DCT 2D: D @ blok @ D.T  — matmul_brute_force (NumPy @)
+                # DCT 2D: D @ blok @ D.T  — matmul_brute_force (optimized)
                 temp = matmul_brute_force(D8,  blok)
                 D_   = matmul_brute_force(temp, D8T)
 
                 Dq   = np.round(D_ / Q_scaled) * Q_scaled
 
-                # IDCT 2D: D.T @ Dq @ D  — matmul_brute_force (NumPy @)
+                # IDCT 2D: D.T @ Dq @ D  — matmul_brute_force (optimized)
                 temp2 = matmul_brute_force(D8T, Dq)
                 R     = matmul_brute_force(temp2, D8)
 
@@ -473,7 +486,7 @@ def main():
     print("╔═════════════════════════════════════════════╗")
     print("║                                             ║")
     print("║          PENGOLAHAN CITRA DIGITAL           ║")
-    print("║          NUMPY (BLAS)   O(n^2.37)           ║")
+    print("║        BRUTE FORCE OPTIMIZED  O(n³)*        ║")
     print("║                                             ║")
     print("╚═════════════════════════════════════════════╝")
 
@@ -521,7 +534,7 @@ def main():
     n_files = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".png")])
 
     print(f"\n{'═'*60}")
-    print(f"  SELESAI  [Metode: NUMPY (BLAS)]")
+    print(f"  SELESAI  [Metode: BRUTE FORCE OPTIMIZED]")
     print(f"  Total waktu   : {elapsed_total:.2f} detik")
     print(f"  File output   : {n_files} citra PNG")
     print(f"  Folder output : ./{OUTPUT_DIR}/")

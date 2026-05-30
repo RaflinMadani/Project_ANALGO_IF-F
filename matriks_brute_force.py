@@ -475,47 +475,55 @@ def bab10_kompresi(gray):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    print("╔═══════════════════════════╗")
-    print("║                           ║")
-    print("║  PENGOLAHAN CITRA DIGITAL ║")  
-    print("║                           ║")
-    print("╚═══════════════════════════╝")
+    print("╔═════════════════════════════════════════════╗")
+    print("║                                             ║")
+    print("║          PENGOLAHAN CITRA DIGITAL           ║")
+    print("║            BRUTE FORCE    O(n³)             ║")
+    print("║                                             ║")
+    print("╚═════════════════════════════════════════════╝")
 
-    path = input("\nMasukkan path citra (atau tekan Enter untuk citra uji sintetis): ").strip().strip('"')
+    # ── Input citra ──────────────────────────────────────────────────────────
+    path = input("\nPath citra input: ").strip().strip('"')
+    if not os.path.exists(path):
+        print(f"[ERROR] File tidak ditemukan: {path}")
+        sys.exit(1)
 
-    if path and os.path.exists(path):
-        img_bgr = cv2.imread(path)
-        if img_bgr is None:
-            print("[ERROR] Tidak dapat membaca citra.")
-            sys.exit(1)
-        print(f"[OK] Citra dimuat: {img_bgr.shape[1]}×{img_bgr.shape[0]} px")
-    else:
-        print("[INFO] Membuat citra sintetis 256×256 untuk demonstrasi ...")
-        img_bgr = np.zeros((256, 256, 3), dtype=np.uint8)
-        for y in range(256):
-            for x in range(256):
-                img_bgr[y, x, 2] = x
-                img_bgr[y, x, 1] = y
-                img_bgr[y, x, 0] = (x + y) // 2
-        cv2.circle(img_bgr, (128, 128), 60, (255, 200, 100), -1)
-        cv2.circle(img_bgr, (64,   64), 30, (100, 255, 150), -1)
-        cv2.circle(img_bgr, (192,  64), 25, (150, 100, 255), -1)
-        cv2.rectangle(img_bgr, (30, 150), (100, 220), (200, 100, 200), -1)
-        cv2.rectangle(img_bgr, (160,150), (230, 210), (100, 200, 200), -1)
-        cv2.imwrite(os.path.join(OUTPUT_DIR, "_input_sintetis.png"), img_bgr)
-        print(f"[OK] Citra sintetis dibuat dan disimpan.")
+    img_bgr = cv2.imread(path)
+    if img_bgr is None:
+        print(f"[ERROR] Tidak dapat membaca citra: {path}")
+        sys.exit(1)
 
+    print(f"[OK] Citra dimuat: {img_bgr.shape[1]}×{img_bgr.shape[0]} px")
     _save("_input_asli.png", img_bgr)
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    gray    = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    # ── Menu bab ─────────────────────────────────────────────────────────────
+    print("\nPilih bab yang ingin dijalankan:")
+    print("  [1] BAB 5  — Transformasi Domain Frekuensi (DFT + DCT)")
+    print("  [2] BAB 8  — Transformasi Geometri (Affine + Perspektif)")
+    print("  [3] BAB 10 — Kompresi Citra (RLE + JPEG-like DCT)")
+    print("  [4] Semua bab")
+
+    pilihan = input("\nPilih [1/2/3/4]: ").strip()
+
     t_total = time.perf_counter()
 
-    img_lp, img_hp  = bab5_domain_frekuensi(gray)
-    rotated, warped = bab8_transformasi_geometri(img_bgr)
-    jpeg_recon      = bab10_kompresi(gray)
+    if pilihan == "1":
+        bab5_domain_frekuensi(gray)
+    elif pilihan == "2":
+        bab8_transformasi_geometri(img_bgr)
+    elif pilihan == "3":
+        bab10_kompresi(gray)
+    elif pilihan == "4":
+        bab5_domain_frekuensi(gray)
+        bab8_transformasi_geometri(img_bgr)
+        bab10_kompresi(gray)
+    else:
+        print("[ERROR] Pilihan tidak valid. Masukkan 1, 2, 3, atau 4.")
+        sys.exit(1)
 
     elapsed_total = time.perf_counter() - t_total
-    n_files = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith('.png')])
+    n_files = len([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".png")])
 
     print(f"\n{'═'*60}")
     print(f"  SELESAI  [Metode: BRUTE FORCE]")

@@ -1,13 +1,13 @@
 import cv2
 import os
 
-jalur_asli = "image/Lena.jpg"
+jalur_asli = "image/Lena_Warna.jpg"
 img_asli = cv2.imread(jalur_asli)
 
 if img_asli is None:
     print(f"Error: File '{jalur_asli}' tidak ditemukan!")
 else:
-    lebar, tinggi = 4096, 4096
+    lebar, tinggi = 1024, 1024
     ukuran_baru = (lebar, tinggi)
 
     img_resolution = cv2.resize(img_asli, ukuran_baru, interpolation=cv2.INTER_CUBIC)
