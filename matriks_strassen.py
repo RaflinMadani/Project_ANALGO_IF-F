@@ -26,17 +26,6 @@ def _join(C11: list, C12: list, C21: list, C22: list) -> list:
     bottom = [r1 + r2 for r1, r2 in zip(C21, C22)]
     return top + bottom
 
-def _pad_to_power_of_2(M: list) -> tuple:
-    n, m   = len(M), len(M[0])
-    size   = 1
-    while size < max(n, m):
-        size *= 2
-    padded = [[0.0] * size for _ in range(size)]
-    for i in range(n):
-        for j in range(m):
-            padded[i][j] = M[i][j]
-    return padded, n, m
-
 def _base_multiply(A: list, B: list) -> list:
     n = len(A)
     p = len(A[0])
@@ -50,10 +39,15 @@ def _base_multiply(A: list, B: list) -> list:
     return C
 
 # ── rekursi inti Strassen ─────────────────────────────────────────────────────
-_BASE_SIZE = 2   # ukuran minimum sebelum turun ke base case skalar
+_BASE_SIZE = 64   # ukuran minimum sebelum turun ke base case skalar
 
 def _strassen_rec(A: list, B: list) -> list:
     n = len(A)
+    
+    # Batasi ukuran maksimum untuk menghindari crash
+    MAX_SIZE = 8192
+    if n > MAX_SIZE:
+        raise ValueError(f"Ukuran matriks terlalu besar untuk Strassen: {n}×{n} > {MAX_SIZE}×{MAX_SIZE}")
 
     # Base case: gunakan perkalian skalar biasa (bukan @)
     if n <= _BASE_SIZE:
@@ -81,32 +75,40 @@ def _strassen_rec(A: list, B: list) -> list:
     return _join(C11, C12, C21, C22)
 
 # ── entry point ───────────────────────────────────────────────────────────────
-def multiply(A: list, B: list) -> list:
+def multiply(A, B):
+    # Cek dimensi
     n_A, p_A = len(A), len(A[0])
     p_B, m_B = len(B), len(B[0])
-
+    
     if p_A != p_B:
-        raise ValueError(
-            f"Dimensi tidak cocok: A({n_A}x{p_A}) tidak bisa dikalikan B({p_B}x{m_B})"
-        )
-
-    # Tentukan ukuran persegi power-of-2 yang menampung max(n, p, m)
+        raise ValueError(f"Dimensi tidak cocok: A({n_A}x{p_A}) tidak bisa dikalikan B({p_B}x{m_B})")
+    
+    # Tentukan ukuran persegi power-of-2 terkecil yang menampung semua dimensi
+    max_dim = max(n_A, p_A, m_B)
     size = 1
-    while size < max(n_A, p_A, m_B):
+    while size < max_dim:
         size *= 2
-
-    # Pad A dan B ke size×size
-    Ap = [[0.0] * size for _ in range(size)]
-    Bp = [[0.0] * size for _ in range(size)]
+    
+    # Jika ukuran terlalu besar untuk Strassen, lemparkan error atau fallback ke NumPy
+    if size > 8192:
+        raise ValueError(f"Ukuran padding terlalu besar untuk Strassen: {size}×{size}")
+    
+    # Buat matriks A_pad dan B_pad (diisi 0 di area padding)
+    A_pad = [[0.0] * size for _ in range(size)]
+    B_pad = [[0.0] * size for _ in range(size)]
+    
+    # Salin A ke A_pad
     for i in range(n_A):
         for j in range(p_A):
-            Ap[i][j] = float(A[i][j])
+            A_pad[i][j] = float(A[i][j])
+    
+    # Salin B ke B_pad
     for i in range(p_B):
         for j in range(m_B):
-            Bp[i][j] = float(B[i][j])
-
-    # Strassen pada matriks persegi
-    Cp = _strassen_rec(Ap, Bp)
-
-    # Crop ke ukuran hasil asli (n_A × m_B)
-    return [Cp[i][:m_B] for i in range(n_A)]
+            B_pad[i][j] = float(B[i][j])
+    
+    # Panggil _strassen_rec dengan matriks persegi
+    C_pad = _strassen_rec(A_pad, B_pad)
+    
+    # Crop hasil ke ukuran asli (n_A × m_B)
+    return [C_pad[i][:m_B] for i in range(n_A)]

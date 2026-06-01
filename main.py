@@ -1,355 +1,205 @@
 import streamlit as st
 import time
-import math
+import numpy as np
+import pandas as pd
+import altair as alt
+import cv2
 
 import matriks_brute_force           as bf
 import matriks_brute_force_optimized as bfo
 import matriks_strassen              as st_algo
+import matriks_winograd              as wg_algo
 import matriks_numpy                 as npy
 import generate_matriks              as gen
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  KONFIGURASI HALAMAN
-# ─────────────────────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Perbandingan Algoritma Perkalian Matriks",
-    page_icon="🧮",
-    layout="wide",
-)
-
+st.set_page_config(page_title="Perbandingan Algoritma Perkalian Matriks", page_icon="🧮", layout="wide")
 st.title("🧮 Perbandingan Algoritma Perkalian Matriks")
-st.caption(
-    "Brute Force  ·  Brute Force Optimized  ·  Strassen  ·  NumPy (BLAS)"
-)
-st.divider()
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  SIDEBAR — KONFIGURASI INPUT
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Konfigurasi")
+    mode = st.radio("Sumber Matriks", ["Input Manual", "Random", "Transformasi Warna (RGB → Grayscale)"], index=2)
 
-    mode = st.radio(
-        "Sumber matriks",
-        ["Input manual", "Random", "DCT 2D (8×8)"],
-        index=1,
-    )
+    if mode == "Input Manual":
+        col1, col2 = st.columns(2)
+        with col1:
+            rows_a = st.number_input("Baris A", 1, 8, 3, 1)
+            cols_a = st.number_input("Kolom A", 1, 8, 3, 1)
+        with col2:
+            rows_b = st.number_input("Baris B", 1, 8, 3, 1)
+            cols_b = st.number_input("Kolom B", 1, 8, 3, 1)
+        if cols_a != rows_b:
+            st.error(f"Kolom A ({cols_a}) ≠ Baris B ({rows_b})")
+        st.subheader("Matriks A")
+        df_a = pd.DataFrame([[1.0]*cols_a for _ in range(rows_a)], columns=[f"c{j+1}" for j in range(cols_a)])
+        edited_a = st.data_editor(df_a, key="edit_A", hide_index=True)
+        st.subheader("Matriks B")
+        df_b = pd.DataFrame([[1.0]*cols_b for _ in range(rows_b)], columns=[f"c{j+1}" for j in range(cols_b)])
+        edited_b = st.data_editor(df_b, key="edit_B", hide_index=True)
 
-    if mode == "Random":
-        n_size = st.slider("Ukuran matriks (n×n)", min_value=2, max_value=64, value=4, step=1)
-        seed   = st.number_input("Seed random", value=42, step=1)
-        lo     = st.number_input("Nilai minimum", value=-10.0, step=1.0)
-        hi     = st.number_input("Nilai maksimum", value=10.0, step=1.0)
+    elif mode == "Random":
+        n_size = st.number_input("Ukuran (n×n)", 2, 8192, 4, 1)
+        st.caption("Nilai acak positif 1–10")
 
-    elif mode == "DCT 2D (8×8)":
-        st.info(
-            "Menggunakan matriks basis DCT-II ortogonal 8×8.\n\n"
-            "Ini adalah matriks yang dipakai standar JPEG untuk kompresi gambar:\n"
-            "`C = D × blok × D^T`"
-        )
+    else:  # RGB → Grayscale
+        uploaded_file = st.file_uploader("Upload Citra Berwarna", ["jpg","png","jpeg","bmp"])
+        if uploaded_file:
+            st.success("✅ Citra terupload")
+        else:
+            st.info("Upload citra berwarna")
 
     st.divider()
-
-    run_bf  = st.checkbox("Brute Force  O(n³)",           value=True)
-    run_bfo = st.checkbox("Brute Force Optimized  O(n³)*", value=True)
-    run_st  = st.checkbox("Strassen  O(n^2.807)",         value=True)
-    run_np  = st.checkbox("NumPy BLAS  O(n^2.37)",        value=True)
-
-    repeat = st.slider("Pengulangan pengukuran", min_value=1, max_value=5, value=1)
+    run_bf  = st.checkbox("Brute Force", True)
+    run_bfo = st.checkbox("Brute Force Optimized", True)
+    run_st  = st.checkbox("Strassen", True)
+    run_wg  = st.checkbox("Winograd", True)
+    run_np  = st.checkbox("NumPy BLAS", True)
 
     st.divider()
     jalankan = st.button("▶ Jalankan", type="primary", use_container_width=True)
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  PANEL INPUT MATRIKS
-# ─────────────────────────────────────────────────────────────────────────────
-A, B = None, None
-input_error = None
-
-if mode == "Input manual":
-    st.subheader("Input Matriks")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Matriks A**")
-        st.caption("Pisahkan nilai dengan spasi, baris baru untuk baris berikutnya")
-        raw_A = st.text_area(
-            "Matriks A",
-            value="1 2 3\n4 5 6\n7 8 9",
-            height=120,
-            label_visibility="collapsed",
-            key="input_A",
-        )
-
-    with col2:
-        st.markdown("**Matriks B**")
-        st.caption("Jumlah kolom A harus sama dengan jumlah baris B")
-        raw_B = st.text_area(
-            "Matriks B",
-            value="9 8 7\n6 5 4\n3 2 1",
-            height=120,
-            label_visibility="collapsed",
-            key="input_B",
-        )
+# ── MAIN LOGIC ──────────────────────────────────────────────────────────────
+if jalankan:
+    A, B = None, None
+    img_original = None
+    transform_mode = False
 
     try:
-        A = gen.matrix_from_user_input(raw_A)
-        B = gen.matrix_from_user_input(raw_B)
+        if mode == "Input Manual":
+            A = edited_a.values.tolist()
+            B = edited_b.values.tolist()
+            if len(A[0]) != len(B):
+                st.error("Dimensi tidak cocok!")
+                st.stop()
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.caption(f"Dimensi A: {len(A)}×{len(A[0])}")
-        with col2:
-            st.caption(f"Dimensi B: {len(B)}×{len(B[0])}")
+        elif mode == "Random":
+            st.toast(f"🔄 Membuat matriks {n_size}×{n_size}...", icon="⚡")
+            A = gen.random_matrix(n_size, n_size, lo=1, hi=10, seed=42)
+            B = gen.random_matrix(n_size, n_size, lo=1, hi=10, seed=7)
 
-        # Validasi dimensi
-        if len(A[0]) != len(B):
-            input_error = (
-                f"Kolom A ({len(A[0])}) harus sama dengan baris B ({len(B)})"
-            )
-    except ValueError as e:
-        input_error = str(e)
+        elif mode == "Transformasi Warna (RGB → Grayscale)":
+            if uploaded_file is None:
+                st.error("Upload citra dulu!")
+                st.stop()
+            st.toast("🖼️ Memproses citra...", icon="📸")
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            if img is None:
+                st.error("Gagal baca citra")
+                st.stop()
+            if img.shape[2] == 4:
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+            img_original = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            H, W = img.shape[:2]
+            b, g, r = cv2.split(img)
+            r_flat = r.reshape(-1).astype(np.float64)
+            g_flat = g.reshape(-1).astype(np.float64)
+            b_flat = b.reshape(-1).astype(np.float64)
+            img_matrix = np.array([r_flat, g_flat, b_flat])  # 3×N
+            A = [[0.299, 0.587, 0.114]]  # 1×3 
+            B = img_matrix.tolist()
+            transform_mode = True
+            st.info(f"Citra {W}×{H}, total piksel: {H*W}")
 
-    if input_error:
-        st.error(f"❌ {input_error}")
+    except Exception as e:
+        st.error(f"❌ Gagal menyiapkan data: {e}")
+        st.stop()
 
-elif mode == "Random":
-    A = gen.random_matrix(n_size, n_size, lo, hi, seed=int(seed))
-    B = gen.random_matrix(n_size, n_size, lo, hi, seed=int(seed) + 1)
+    # ── Daftar algoritma ────────────────────────────────────────────────────
+    algorithms = []
+    if run_bf:  algorithms.append(("Brute Force", bf.multiply, "#E24B4A"))
+    if run_bfo: algorithms.append(("BF Optimized", bfo.multiply, "#EF9F27"))
+    if run_st:  algorithms.append(("Strassen", st_algo.multiply, "#7F77DD"))
+    if run_wg:  algorithms.append(("Winograd", wg_algo.multiply, "#FFA500"))
+    if run_np:  algorithms.append(("NumPy BLAS", npy.multiply, "#1D9E75"))
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Matriks A")
-        st.caption(f"Dimensi: {len(A)}×{len(A[0])}")
-        if n_size <= 8:
-            st.dataframe(A, use_container_width=True, hide_index=False)
+    if not algorithms:
+        st.warning("Pilih minimal satu algoritma")
+        st.stop()
 
-    with col2:
-        st.subheader("Matriks B")
-        st.caption(f"Dimensi: {len(B)}×{len(B[0])}")
-        if n_size <= 8:
-            st.dataframe(B, use_container_width=True, hide_index=False)
+    # ── Eksekusi & ukur waktu ──────────────────────────────────────────────
+    times, results, errors = {}, {}, {}
+    progress = st.progress(0, text="Menjalankan algoritma...")
 
-    if n_size > 8:
-        st.info(f"Matriks {n_size}×{n_size} terlalu besar untuk ditampilkan.")
+    for idx, (name, func, _) in enumerate(algorithms):
+        try:
+            start = time.perf_counter()
+            C = func(A, B)  # Semua algoritma dijalankan pada data yang sama
+            elapsed = time.perf_counter() - start
+            times[name] = elapsed
+            results[name] = C
+            errors[name] = None
+        except Exception as e:
+            times[name] = None
+            results[name] = None
+            errors[name] = str(e)
+        progress.progress((idx+1)/len(algorithms), text=f"Selesai: {name}")
+    progress.empty()
 
-else:  # DCT 2D
-    A = gen.dct_matrix(8)
-    B = gen.random_block(8, seed=42)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Matriks A — Basis DCT (8×8)")
-        st.caption("D[k][n] = sqrt(2/N)·cos(π·k·(2n+1)/2N)")
-        st.dataframe(
-            [[f"{v:.4f}" for v in row] for row in A],
-            use_container_width=True,
-            hide_index=False,
-        )
-    with col2:
-        st.subheader("Matriks B — Blok Piksel (8×8)")
-        st.caption("Nilai piksel ter-level-shift: rentang [-128, 127]")
-        st.dataframe(
-            [[f"{v:.2f}" for v in row] for row in B],
-            use_container_width=True,
-            hide_index=False,
-        )
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  EKSEKUSI ALGORITMA
-# ─────────────────────────────────────────────────────────────────────────────
-def run_algorithm(fn, A, B, repeat):
-    """Jalankan fungsi multiply sebanyak `repeat` kali, kembalikan (hasil, rata_ms)."""
-    result = None
-    total  = 0.0
-    for _ in range(repeat):
-        t0     = time.perf_counter()
-        result = fn(A, B)
-        total += time.perf_counter() - t0
-    return result, (total / repeat) * 1000   # rata-rata dalam ms
-
-def max_diff(C1, C2):
-    """Hitung selisih maksimum antara dua matriks (untuk verifikasi kebenaran)."""
-    max_d = 0.0
-    for i in range(len(C1)):
-        for j in range(len(C1[0])):
-            d = abs(C1[i][j] - C2[i][j])
-            if d > max_d:
-                max_d = d
-    return max_d
-
-if jalankan and A is not None and input_error is None:
+    # ── Tampilkan hasil ─────────────────────────────────────────────────────
     st.divider()
     st.subheader("📊 Hasil Perbandingan")
 
-    ALGORITHMS = []
-    if run_bf:
-        ALGORITHMS.append(("Brute Force",           "O(n³)",       bf.multiply,  "#E24B4A"))
-    if run_bfo:
-        ALGORITHMS.append(("BF Optimized",          "O(n³)*",      bfo.multiply, "#EF9F27"))
-    if run_st:
-        ALGORITHMS.append(("Strassen",              "O(n^2.807)",  st_algo.multiply, "#7F77DD"))
-    if run_np:
-        ALGORITHMS.append(("NumPy BLAS",            "O(n^2.37)",   npy.multiply, "#1D9E75"))
-
-    if not ALGORITHMS:
-        st.warning("Pilih minimal satu algoritma.")
-        st.stop()
-
-    results  = {}
-    times_ms = {}
-
-    progress = st.progress(0, text="Menjalankan algoritma...")
-    for idx, (name, _, fn, _) in enumerate(ALGORITHMS):
-        try:
-            C, ms = run_algorithm(fn, A, B, repeat)
-            results[name]  = C
-            times_ms[name] = ms
-        except Exception as e:
-            st.error(f"Error pada {name}: {e}")
-            results[name]  = None
-            times_ms[name] = None
-        progress.progress((idx + 1) / len(ALGORITHMS), text=f"Selesai: {name}")
-
-    progress.empty()
-
-    # ── Metric cards waktu ────────────────────────────────────────────────
-    cols = st.columns(len(ALGORITHMS))
-    for col, (name, complexity, _, color) in zip(cols, ALGORITHMS):
-        ms = times_ms.get(name)
+    cols = st.columns(len(algorithms))
+    for col, (name, _, _) in zip(cols, algorithms):
+        t = times.get(name)
         with col:
-            if ms is not None:
-                st.metric(
-                    label=f"{name}  `{complexity}`",
-                    value=f"{ms:.3f} ms",
-                )
+            if t is not None:
+                st.metric(name, f"{t:.4f} detik", f"{t*1000:.2f} ms")
             else:
-                st.metric(label=name, value="Error")
+                st.metric(name, f"❌ Error: {errors.get(name, '')}")
 
-    # ── Grafik batang waktu ───────────────────────────────────────────────
-    valid = {n: t for n, t in times_ms.items() if t is not None}
-    if len(valid) > 1:
+    valid_times = {n: t for n, t in times.items() if t is not None}
+    if len(valid_times) > 1:
         st.divider()
         st.subheader("⏱ Perbandingan Waktu")
+        df = pd.DataFrame({
+            "Algoritma": list(valid_times.keys()),
+            "Waktu (detik)": list(valid_times.values())
+        }).sort_values("Waktu (detik)", ascending=False)
+        color_scale = alt.Scale(
+            domain=[name for name, _, _ in algorithms if times.get(name)],
+            range=[color for _, _, color in algorithms if times.get(name)]
+        )
+        st.altair_chart(
+            alt.Chart(df).mark_bar().encode(
+                x=alt.X("Waktu (detik):Q", title="Waktu (detik)"),
+                y=alt.Y("Algoritma:N", sort=None, title=None),
+                color=alt.Color("Algoritma:N", scale=color_scale, legend=None),
+                tooltip=["Algoritma", alt.Tooltip("Waktu (detik):Q", format=".6f")]
+            ).properties(height=300),
+            use_container_width=True
+        )
 
-        import importlib.util
-        has_altair = importlib.util.find_spec("altair") is not None
-
-        if has_altair:
-            import altair as alt
-            import pandas as pd
-            df = pd.DataFrame({
-                "Algoritma": list(valid.keys()),
-                "Waktu (ms)": list(valid.values()),
-            })
-            chart = (
-                alt.Chart(df)
-                .mark_bar()
-                .encode(
-                    x=alt.X("Algoritma:N", sort=None, axis=alt.Axis(labelAngle=0)),
-                    y=alt.Y("Waktu (ms):Q"),
-                    color=alt.Color(
-                        "Algoritma:N",
-                        scale=alt.Scale(
-                            domain=list(valid.keys()),
-                            range=[c for _, _, _, c in ALGORITHMS if times_ms.get(_) is not None],
-                        ),
-                        legend=None,
-                    ),
-                    tooltip=["Algoritma", alt.Tooltip("Waktu (ms):Q", format=".4f")],
-                )
-                .properties(height=300)
-            )
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            # Fallback: bar chart teks
-            max_t = max(valid.values())
-            for name, ms in valid.items():
-                bar_len = int(ms / max_t * 40)
-                st.text(f"{name:<22} {'█' * bar_len} {ms:.3f} ms")
-
-    # ── Speedup relatif terhadap Brute Force ─────────────────────────────
-    if "Brute Force" in valid and len(valid) > 1:
-        st.divider()
-        st.subheader("🚀 Speedup vs Brute Force")
-        bf_time = valid["Brute Force"]
-        cols    = st.columns(len(valid) - 1)
-        i       = 0
-        for name, ms in valid.items():
-            if name == "Brute Force":
-                continue
-            with cols[i]:
-                speedup = bf_time / ms if ms > 0 else float("inf")
-                st.metric(
-                    label=name,
-                    value=f"{speedup:.2f}×",
-                    delta=f"{ms:.3f} ms",
-                    delta_color="inverse",
-                )
-            i += 1
-
-    # ── Verifikasi kebenaran ──────────────────────────────────────────────
+    # ── Output spesifik per mode ──────────────────────────────────────────
     st.divider()
-    st.subheader("✅ Verifikasi Kebenaran")
-
-    ref_name   = next(iter(results))
-    ref_result = results[ref_name]
-
-    all_correct = True
-    vcols = st.columns(len(results))
-    for col, (name, result) in zip(vcols, results.items()):
-        with col:
-            if result is None:
-                st.error(f"**{name}**\nError")
-                all_correct = False
-            elif name == ref_name:
-                st.success(f"**{name}**\nReferensi")
+    if mode == "Input Manual":
+        ref = next((n for n, t in times.items() if t is not None), None)
+        if ref and results[ref] is not None:
+            st.subheader("Matriks Hasil (C = A × B)")
+            if len(results[ref]) <= 8:
+                st.dataframe(pd.DataFrame(results[ref]))
             else:
-                diff = max_diff(ref_result, result)
-                if diff < 1e-6:
-                    st.success(f"**{name}**\nSelisih: {diff:.2e} ✓")
-                else:
-                    st.error(f"**{name}**\nSelisih: {diff:.2e} ✗")
-                    all_correct = False
+                st.info("Matriks terlalu besar untuk ditampilkan")
 
-    if all_correct:
-        st.success("Semua algoritma menghasilkan matriks yang identik (error < 1e-6).")
+    elif mode == "Transformasi Warna (RGB → Grayscale)":
+        st.subheader("Citra Asli vs Hasil Grayscale")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.caption("Citra Asli (RGB)")
+            st.image(img_original, use_container_width=True)
+        with col2:
+            st.caption("Hasil Grayscale")
+            ref = next((n for n, t in times.items() if t is not None), None)
+            if ref and results[ref] is not None:
+                gray_vals = np.array(results[ref]).reshape(-1)
+                H, W = img_original.shape[:2]
+                gray_img = gray_vals.reshape(H, W).astype(np.uint8)
+                st.image(gray_img, use_container_width=True)
+            else:
+                st.warning("Tidak ada hasil dari algoritma manapun")
 
-    # ── Tampilkan hasil matriks C ─────────────────────────────────────────
-    show_result = st.checkbox("Tampilkan matriks hasil C", value=False)
-    if show_result:
-        st.divider()
-        st.subheader("Matriks Hasil C = A × B")
-        ref_C = next(r for r in results.values() if r is not None)
-        n_res = len(ref_C)
-        if n_res <= 12:
-            st.dataframe(
-                [[f"{v:.4f}" for v in row] for row in ref_C],
-                use_container_width=True,
-                hide_index=False,
-            )
-        else:
-            st.info(
-                f"Matriks hasil {n_res}×{len(ref_C[0])} terlalu besar untuk ditampilkan."
-                " Centang hanya untuk matriks kecil."
-            )
+    st.success("✅ Selesai!")
 
-    # ── Kompleksitas Waktu ────────────────────────────────────────────────
-    st.divider()
-    with st.expander("📖 Penjelasan Kompleksitas Waktu"):
-        st.markdown("""
-| Algoritma | Kompleksitas | Keterangan |
-|---|---|---|
-| **Brute Force** | O(n³) | Triple loop i→j→k. Akses B column-wise → banyak cache miss |
-| **BF Optimized** | O(n³)* | Loop reorder i→k→j + prefetch A[i][k]. Akses B row-wise → cache-friendly |
-| **Strassen** | O(n^2.807) | Divide & conquer. 7 perkalian rekursif (bukan 8). Keuntungan nyata mulai n ≈ 64+ |
-| **NumPy BLAS** | O(n^2.37) | BLAS dgemm. Cache-blocked + SIMD/AVX + multi-thread. Tidak ada loop Python |
-        """)
-
-elif jalankan and input_error:
-    st.error(f"Tidak dapat menjalankan: {input_error}")
-
-elif not jalankan:
-    st.info("← Atur konfigurasi di sidebar, lalu tekan **▶ Jalankan**.")
+else:
+    st.info("👈 Atur konfigurasi di sidebar, lalu tekan ▶ Jalankan")

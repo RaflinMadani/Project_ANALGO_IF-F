@@ -29,7 +29,6 @@ def dct_matrix_transpose(N: int = 8) -> list:
     D = dct_matrix(N)
     return [[D[j][i] for j in range(N)] for i in range(N)]
 
-
 def random_block(N: int = 8, seed: int = None) -> list:
     rng = random.Random(seed)
     return [

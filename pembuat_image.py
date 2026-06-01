@@ -7,7 +7,7 @@ img_asli = cv2.imread(jalur_asli)
 if img_asli is None:
     print(f"Error: File '{jalur_asli}' tidak ditemukan!")
 else:
-    lebar, tinggi = 1024, 1024
+    lebar, tinggi = 64, 64
     ukuran_baru = (lebar, tinggi)
 
     img_resolution = cv2.resize(img_asli, ukuran_baru, interpolation=cv2.INTER_CUBIC)
