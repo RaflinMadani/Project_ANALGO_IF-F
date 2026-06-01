@@ -39,7 +39,7 @@ def _base_multiply(A: List[List[float]], B: List[List[float]]) -> List[List[floa
 # ── konfigurasi ──────────────────────────────────────────────────────────────
 _BASE_SIZE = 64         
 _MT_THRESHOLD = 64       
-_MAX_WORKERS = 12          
+_MAX_WORKERS = 8          
 
 def _winograd_rec(A: List[List[float]], B: List[List[float]]) -> List[List[float]]:
     n = len(A)
